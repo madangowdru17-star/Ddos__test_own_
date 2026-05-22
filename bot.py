@@ -17,8 +17,8 @@ import telegram
 from telegram.ext import Updater, CommandHandler
 
 # ========== CONFIG ==========
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))  # Your Telegram user ID
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8897529808:AAFOr23D_uNaJy5dGjPcPdvC8D1se9e49nc")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "7898928200"))  # Your Telegram user ID
 
 # Attack targets
 TARGETS = {
