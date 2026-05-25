@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8957381735:AAEbDCbmmzvT1aDUBdUOjDAHZdbi5OQpxxQ"
+BOT_TOKEN = "8957381735:AAE1OMZgYPQu5xqGmly3unK-ZL6IkraPDBQ"
 ADMIN_IDS = [7898928200]
 
 # Force flush output for Railway logs
