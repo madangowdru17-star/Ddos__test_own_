@@ -1,9 +1,10 @@
+# railway.json
 {
   "build": {
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python bot.py",
+    "startCommand": "python bot_v2.py",
     "restartPolicyType": "ON_FAILURE"
   }
 }
