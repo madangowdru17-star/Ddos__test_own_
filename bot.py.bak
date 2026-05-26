@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from attacks import DDoSEngine
 
-TOKEN = "8519426652:AAHKblX4IGRSWbGUmU-jVWgCctW52qedyv8"
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 attacks = {}
 
